@@ -1,99 +1,97 @@
-import pymysql
-from tornado_json.requesthandlers import APIHandler
 import string
 import random
 import re
 import datetime
 
+from tornado_json.requesthandlers import APIHandler
+from python_mysql_dbconfig import getconnection
 
-class LinksAPIHandler(APIHandler):
+
+
+
+class LinksAPIHandler(APIHandler):# pylint: disable=too-few-public-methods
     __url_names__ = ["links"]
 
-class GetLinks(LinksAPIHandler):
-    def get(self):
+class GetLinks(LinksAPIHandler):# pylint: disable=too-few-public-methods
+    def post(self):
         try:
-
-            User = self.get_argument("User")
-            conn = pymysql.connect(host='localhost', port=3306, user='user', passwd='1qaz@WSX', db='link_short')
+            user_name = self.get_argument("User")
+            conn = getconnection()
             cur = conn.cursor()
-            cur.execute("SELECT DateCreat, Link, LinkShort, linkscol FROM links WHERE user = '" + User + "'")
+            cur.execute("SELECT DateCreat, Link, LinkShort, linkscol "
+                        "FROM links WHERE user = %s;", (user_name))
             cur.close()
             conn.close()
-            list1 = []
+            list_links = []
             for row in cur:
-                Data2 = {"Date": str(row[0]), "Link": str(row[1]), "ShortLink": str(row[2]), "Kol": row[3]}
-
-                list1.append(Data2)
-            Data = tuple(list1)
-
-            self.success(Data)
+                list_links.append({
+                    "Date": str(row[0]),
+                    "Link": str(row[1]),
+                    "ShortLink": str(row[2]),
+                    "Kol": row[3]
+                })
+            self.success(tuple(list_links))
         except KeyError:
-            self.fail("fail")
+            self.fail("Fail")
 
 
 
 
 
-class SlinkAPIHandler(APIHandler):
-    __url_names__ = ["slink"]
+class GetLinkAPIHandler(APIHandler):# pylint: disable=too-few-public-methods
+    __url_names__ = ["getlink"]
 
 
-class MakeListHandler(SlinkAPIHandler):
+class GetLinkHandler(GetLinkAPIHandler):# pylint: disable=too-few-public-methods
 
     def get(self):
         try:
-
             shortlink = self.get_argument("ShortLink")
-            conn1 = pymysql.connect(host='localhost', port=3306, user='user', passwd='1qaz@WSX', db='link_short')
-            cur1 = conn1.cursor()
-            sql = "SELECT Link  FROM links WHERE LinkShort = '" + shortlink + "'"
-            cur1.execute(sql)
-            cur1.close()
-            conn1.close()
-
-            if cur1.rowcount != 0:
-                link = cur1._rows[0]
-                DATA = {'Link': link[0]}
-                self.success(DATA)
+            conn = getconnection()
+            cur = conn.cursor()
+            cur.execute("SELECT Link  FROM links WHERE LinkShort = %s;", (shortlink))
+            cur.close()
+            conn.close()
+            if cur.rowcount != 0:
+                row_value = cur._rows[0]#pylint: disable=protected-access
+                self.success({'Link': row_value[0]})
+            else:
+                self.fail("No link")
             return
         except KeyError:
-            self.fail("fail")
+            self.fail("Fail")
 
+class SlinkAPIHandler(APIHandler):# pylint: disable=too-few-public-methods
+    __url_names__ = ["slink"]
 
-class MakeAPIHandler(SlinkAPIHandler):
-    def get(self, User):
+class MakeAPIHandler(SlinkAPIHandler):# pylint: disable=too-few-public-methods
+    def post(self):
         try:
+            user = self.get_argument("User")
             link = self.get_argument("Link")
-            conn2 = pymysql.connect(host='localhost', port=3306, user='user', passwd='1qaz@WSX', db='link_short')
-            cur2 = conn2.cursor()
-            sql = "SELECT LinkShort FROM links WHERE Link = '" + link + "'"
-            cur2.execute(sql)
-            cur2.close()
-            conn2.close()
-            if cur2.rowcount == 0:
+            conn = getconnection()
+            cur = conn.cursor()
+            cur.execute("SELECT LinkShort FROM links WHERE Link = %s ", (link))
+            if cur.rowcount == 0:
                 reg = re.compile('[^a-zA-Z ]')
-
-                short_link = generator_short_link(6, reg.sub('', link))
+                while True:
+                    short_link = generator_short_link(6, reg.sub('', link))
+                    cur.execute("SELECT Link FROM links WHERE LinkShort = %s ", (short_link))
+                    if cur.rowcount == 0:
+                        break
                 now = str(datetime.datetime.now())
-                DATA = {'ShortLink': short_link}
-
-                conn3 = pymysql.connect(host='localhost', port=3306, user='user', passwd='1qaz@WSX', db='link_short')
-                cur3 = conn3.cursor()
-                sql = "Insert into  links (Link, LinkShort, User, DateCreat, linkscol) values ('" + link + "', '" + short_link + "', '" + User + "', '" + now + "', 0)"
-                cur3.execute(sql)
-                conn3.commit()
-                cur3.close()
-                conn3.close()
-                self.success(DATA)
-                return
+                cur.execute("INSERT INTO  links (linkscol, Link, LinkShort, User, DateCreat) "
+                            "VALUES (0, %s, %s,%s,%s);", (link, short_link, user, now))
+                conn.commit()
+                cur.close()
+                conn.close()
+                answer_shortlink = {'ShortLink': short_link}
+                self.success(answer_shortlink)
             else:
-                self.fail("Такая ссылка уже сокращена - " + str(cur._rows[0]))
+                self.fail("This link already exists")
         except KeyError:
-            self.fail("No data on such make `{}`.".format(Link))
+            self.fail("Error in creating a link")
 
-def generator_short_link(size: object = 6, chars: object = string.ascii_uppercase + string.digits) -> object:
+def generator_short_link(size: object = 6,
+                         chars: object = string.ascii_uppercase + string.digits) -> object:
     return ''.join(random.choice(chars) for _ in range(size))
-
-
-    
-
